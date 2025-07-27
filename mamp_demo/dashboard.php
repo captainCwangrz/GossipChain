@@ -200,8 +200,9 @@
             menu.style.display = 'none';
             if(params.nodes.length){
                 const id = params.nodes[0];
-                const x = params.event.pageX;
-                const y = params.event.pageY;
+                // Use pointer coordinates provided by vis-network
+                const x = params.pointer.DOM.x;
+                const y = params.pointer.DOM.y;
                 menu.innerHTML =
                     optionSelect(id,'relType')+
                     '<button onclick="sendRequest('+id+')">Send Request</button><br>'+
@@ -211,10 +212,16 @@
                 menu.style.left = x+'px';
                 menu.style.top = y+'px';
                 menu.style.display = 'block';
+                // Prevent document click handler from immediately hiding the menu
+                if(params.event && params.event.srcEvent && params.event.srcEvent.stopPropagation){
+                    params.event.srcEvent.stopPropagation();
+                }
             }
         });
 
-        document.addEventListener('click', function(){ menu.style.display='none'; });
+        document.addEventListener('click', function(e){
+            if(!menu.contains(e.target)) menu.style.display='none';
+        });
     </script>
 </body>
 </html>
