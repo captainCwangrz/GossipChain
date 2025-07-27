@@ -7,6 +7,11 @@
 	}
     $nodes = $pdo->query('SELECT id, username FROM users')->fetchAll();
     $edges = $pdo->query('SELECT from_id, to_id, type FROM relationships')->fetchAll();
+    $usernames = [];
+    foreach($nodes as $n){ $usernames[$n['id']] = $n['username']; }
+    $stmt = $pdo->prepare('SELECT r.id, r.from_id, r.type, u.username FROM requests r JOIN users u ON r.from_id=u.id WHERE r.to_id=? AND r.status="PENDING"');
+    $stmt->execute([$_SESSION['user_id']]);
+    $requests = $stmt->fetchAll();
 
 ?>
 <!DOCTYPE html>
@@ -54,7 +59,7 @@
         #bottom_bar
         {
             background-color: lightyellow;
-            height: 40px;
+            min-height: 40px;
             padding: 0.5rem 1rem;
         }
         .context-menu
@@ -90,7 +95,27 @@
     </div>
     <div id="graph"></div>
     <div id="contextMenu" class="context-menu"></div>
-    <div id="bottom_bar">Ready</div>
+    <div id="bottom_bar">
+        <?php if($requests): ?>
+            <?php foreach($requests as $r): ?>
+                <div style="margin-bottom:4px;">
+                    <?=htmlspecialchars($r['username'])?> requests <?=htmlspecialchars($r['type'])?>
+                    <form style="display:inline" method="post" action="relationship.php">
+                        <input type="hidden" name="action" value="accept_request">
+                        <input type="hidden" name="request_id" value="<?=$r['id']?>">
+                        <button type="submit">Accept</button>
+                    </form>
+                    <form style="display:inline" method="post" action="relationship.php">
+                        <input type="hidden" name="action" value="reject_request">
+                        <input type="hidden" name="request_id" value="<?=$r['id']?>">
+                        <button type="submit">Reject</button>
+                    </form>
+                </div>
+            <?php endforeach; ?>
+        <?php else: ?>
+            Ready
+        <?php endif; ?>
+    </div>
     <script>
         console.log("Nodes:", <?php echo json_encode($nodes); ?>);
         console.log("Edges:", <?php echo json_encode($edges); ?>);
@@ -146,16 +171,43 @@
         }
 
         const menu = document.getElementById('contextMenu');
+        const relTypes = ['DATING','BEST_FRIEND','BROTHER','SISTER','BEEFING','CRUSH'];
+
+        function optionSelect(id,name){
+            return '<select id="'+name+'">'+relTypes.map(t=>`<option value="${t}">${t}</option>`).join('')+'</select>';
+        }
+
+        function post(action, extra){
+            const formData = new URLSearchParams(extra);
+            formData.append('action', action);
+            fetch('relationship.php',{method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:formData.toString()}).then(()=>location.reload());
+        }
+
+        function sendRequest(id){
+            const type=document.getElementById('relType').value;
+            post('send_request',{to_id:id,type:type});
+        }
+        function modifyRelationship(id){
+            const type=document.getElementById('modType').value;
+            post('modify_relationship',{to_id:id,type:type});
+        }
+        function removeRelationship(id){
+            if(confirm('Remove relationship?'))
+                post('remove_relationship',{to_id:id});
+        }
+
         network.on('click', function(params){
             menu.style.display = 'none';
             if(params.nodes.length){
                 const id = params.nodes[0];
                 const x = params.event.pageX;
                 const y = params.event.pageY;
-                menu.innerHTML = ''+
-                    '<button onclick="alert(\'Send friend request to '+id+'\')">Send Friend Request</button>'+
-                    '<button onclick="alert(\'Change relationship with '+id+'\')">Change Relationship</button>'+
-                    '<button onclick="alert(\'Remove relationship with '+id+'\')">Remove Relationship</button>';
+                menu.innerHTML =
+                    optionSelect(id,'relType')+
+                    '<button onclick="sendRequest('+id+')">Send Request</button><br>'+
+                    optionSelect(id,'modType')+
+                    '<button onclick="modifyRelationship('+id+')">Modify</button><br>'+
+                    '<button onclick="removeRelationship('+id+')">Remove Relationship</button>';
                 menu.style.left = x+'px';
                 menu.style.top = y+'px';
                 menu.style.display = 'block';
