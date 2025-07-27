@@ -10,7 +10,7 @@
         $user = $query->fetch();
         if($user && password_verify($password, $user["password_hash"]))
         {
-            //Store locally session
+            // Store user information in the session
             $_SESSION["user_id"] = $user["id"];
             $_SESSION["username"] = $username;
             header("Location: dashboard.php");exit;
