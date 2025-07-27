@@ -197,7 +197,6 @@
         }
 
         network.on('click', function(params){
-            menu.style.display = 'none';
             if(params.nodes.length){
                 const id = params.nodes[0];
                 // Use pointer coordinates provided by vis-network
@@ -212,10 +211,12 @@
                 menu.style.left = x+'px';
                 menu.style.top = y+'px';
                 menu.style.display = 'block';
-                // Prevent document click handler from immediately hiding the menu
-                if(params.event && params.event.srcEvent && params.event.srcEvent.stopPropagation){
-                    params.event.srcEvent.stopPropagation();
+                if(params.event && params.event.srcEvent){
+                    if(params.event.srcEvent.preventDefault) params.event.srcEvent.preventDefault();
+                    if(params.event.srcEvent.stopPropagation) params.event.srcEvent.stopPropagation();
                 }
+            } else {
+                menu.style.display = 'none';
             }
         });
 
