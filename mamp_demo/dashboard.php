@@ -1,19 +1,28 @@
 <?php
-    require "config.php";
+/**
+ * Main dashboard displaying the relationship graph.
+ */
 
-    if(!isset($_SESSION["user_id"]))
-    {
-        header("Location: index.php"); exit;
-    }
-    $nodes = $pdo->query('SELECT id, username FROM users')->fetchAll();
-    $edges = $pdo->query('SELECT from_id, to_id, type FROM relationships')->fetchAll();
-    $usernames = [];
-    foreach($nodes as $n){ $usernames[$n['id']] = $n['username']; }
-    $stmt = $pdo->prepare('SELECT r.id, r.from_id, r.type, u.username
-                           FROM requests r JOIN users u ON r.from_id=u.id
-                           WHERE r.to_id=? AND r.status="PENDING"');
-    $stmt->execute([$_SESSION['user_id']]);
-    $requests = $stmt->fetchAll();
+require 'config.php';
+
+// Redirect unauthenticated users
+if (!isset($_SESSION['user_id'])) {
+    header('Location: index.php');
+    exit;
+}
+
+// Fetch graph nodes and edges
+$nodes = $pdo->query('SELECT id, username FROM users')->fetchAll();
+$edges = $pdo->query('SELECT from_id, to_id, type FROM relationships')->fetchAll();
+
+// Pending relationship requests for the current user
+$stmt = $pdo->prepare(
+    'SELECT r.id, r.from_id, r.type, u.username
+       FROM requests r JOIN users u ON r.from_id = u.id
+      WHERE r.to_id = ? AND r.status = "PENDING"'
+);
+$stmt->execute([$_SESSION['user_id']]);
+$requests = $stmt->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="en">
