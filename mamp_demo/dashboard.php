@@ -172,13 +172,31 @@ $requests = $stmt->fetchAll();
         network.on('click', params => {
             if(params.nodes.length){
                 const id = params.nodes[0];
+
+                // Don't show a menu for the current user's own node
+                if(id === user_id){
+                    menu.style.display = 'none';
+                    return;
+                }
+
                 const {x, y} = params.pointer.DOM;     // vis pointer coords
-                menu.innerHTML =
-                    optionSelect(id,'relType')+
-                    '<button onclick="sendRequest('+id+')">Send Request</button><br>'+
-                    optionSelect(id,'modType')+
-                    '<button onclick="modifyRelationship('+id+')">Modify</button><br>'+
-                    '<button onclick="removeRelationship('+id+')">Remove Relationship</button>';
+
+                // Determine if a relationship already exists between the users
+                const hasRel = edges.get().some(e =>
+                    (e.from == user_id && e.to == id) ||
+                    (e.from == id && e.to == user_id)
+                );
+
+                if(hasRel){
+                    menu.innerHTML =
+                        optionSelect(id,'modType')+
+                        '<button onclick="modifyRelationship('+id+')">Modify</button><br>'+
+                        '<button onclick="removeRelationship('+id+')">Remove Relationship</button>';
+                } else {
+                    menu.innerHTML =
+                        optionSelect(id,'relType')+
+                        '<button onclick="sendRequest('+id+')">Send Request</button>';
+                }
 
                 menu.style.left   = x + 'px';
                 menu.style.top    = y + 'px';
