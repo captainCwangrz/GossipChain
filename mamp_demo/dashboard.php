@@ -35,11 +35,53 @@ $requests = $stmt->fetchAll();
     <style>
         body            { font-family: system-ui, sans-serif; background-color: lightgreen; }
         html, body      { margin:0; padding:0; height:100%; overflow:hidden; }
-        #graph          { width:100vw; height:calc(100vh - 110px); border:none; }
-        #top_bar        { background:lightyellow; padding:.5rem 1rem; height:30px; }
-        #search_bar     { padding:.25rem 1rem; background:#fff; }
-        #search_input   { width:200px; }
-        #bottom_bar     { background:lightyellow; min-height:40px; padding:.5rem 1rem; }
+        /* Network graph fills the viewport minus the header and footer */
+        #graph          { width:100vw; height:calc(100vh - 80px); border:none; }
+
+        /* Polished top bar greeting/search/logout section */
+        #top_bar{
+            background:#fff;
+            border-bottom:1px solid #ccc;
+            box-shadow:0 2px 4px rgba(0,0,0,0.05);
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            padding:0.5rem 1rem;
+            height:50px;
+        }
+        #top_bar .left{ display:flex; align-items:center; gap:1rem; }
+        #search_input{ padding:.25rem .5rem; border:1px solid #ccc; border-radius:4px; }
+        #search_btn{ padding:.25rem .75rem; margin-left:.25rem; }
+        #logout_link{ color:#06c; text-decoration:none; font-weight:500; }
+        #logout_link:hover{ text-decoration:underline; }
+
+        /* Bottom bar mirrors the top bar styling */
+        #bottom_bar{
+            background:#fff;
+            border-top:1px solid #ccc;
+            box-shadow:0 -2px 4px rgba(0,0,0,0.05);
+            position:fixed;
+            bottom:0;
+            width:100%;
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            padding:0 1rem;
+            height:30px;
+        }
+
+        /* Scrollable container for chat tabs */
+        #chat_tabs      {
+            display:flex;
+            gap:6px;
+            max-width:60%;
+            overflow-x:auto;
+            padding-right:20px; /* extra space keeps the last tab's × fully visible */
+        }
+
+        /* Individual chat tab with a visible close button */
+        .chat_tab       { background:#fff; border:1px solid #ccc; border-radius:4px; padding:0 6px; cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; flex:0 0 auto; }
+        .chat_tab button{ margin-left:6px; flex:0 0 auto; background:none; border:none; cursor:pointer; padding:0; line-height:1; font-size:14px; font-weight:bold; color:#333; }
         .context-menu   {
             position:absolute; background:#ffffffee; box-shadow:0 2px 6px rgba(0,0,0,.2);
             border-radius:4px; padding:.5rem; display:none; z-index:10;
@@ -48,23 +90,35 @@ $requests = $stmt->fetchAll();
             display:block; width:100%; background:none; border:none;
             padding:.25rem 0; cursor:pointer; text-align:left;
         }
+        /* Floating chat window fixed to the bottom-right above the bar */
+        #chat_bubble   { display:none; border:1px solid #333; background:#fff; padding:.5rem; max-width:300px; position:fixed; bottom:30px; right:0; }
+
+        /* Scrollable area containing message history */
+        #chat_messages { height:150px; overflow-y:auto; margin-bottom:.5rem; background:#fefefe; }
+
+        /* Chat input aligned beside Send button */
+        #chat_form     { display:flex; gap:4px; }
+        #chat_input    { flex:1; }
     </style>
 </head>
 <body>
     <div id="top_bar">
-        Hello, <?php echo htmlspecialchars($_SESSION["username"]);?>
-        <a style="float:right" href="logout.php">Log Out</a>
-    </div>
-
-    <div id="search_bar">
-        <input type="text" id="search_input" placeholder="Search user.">
-        <button id="search_btn">Go</button>
+        <div class="left">
+            <span>Hello, <?php echo htmlspecialchars($_SESSION["username"]);?></span>
+            <div class="search">
+                <input type="text" id="search_input" placeholder="Search user">
+                <button id="search_btn">Go</button>
+            </div>
+        </div>
+        <a id="logout_link" href="logout.php">Log Out</a>
     </div>
 
     <div id="graph"></div>
     <div id="contextMenu" class="context-menu"></div>
 
+    <!-- Fixed footer with relationship requests and chat tabs -->
     <div id="bottom_bar">
+        <div id="request_area">
         <?php if($requests): foreach($requests as $r): ?>
             <div style="margin-bottom:4px;">
                 <?=htmlspecialchars($r['username'])?> requests <?=htmlspecialchars($r['type'])?>
@@ -82,6 +136,17 @@ $requests = $stmt->fetchAll();
         <?php endforeach; else: ?>
             Ready
         <?php endif; ?>
+        </div>
+        <div id="chat_tabs"></div>
+    </div>
+
+    <!-- Floating chat bubble that displays the active conversation -->
+    <div id="chat_bubble">
+        <div id="chat_messages"></div>
+        <form id="chat_form">
+            <input type="text" id="chat_input" autocomplete="off">
+            <button type="submit">Send</button>
+        </form>
     </div>
 
     <script>
@@ -169,6 +234,105 @@ $requests = $stmt->fetchAll();
                 post('remove_relationship', {to_id:id});
         }
 
+        // ----- Direct messaging helpers -----
+        let activeChat = null;                                 // ID of the user currently being chatted with
+        let lastMessageId = 0;                                 // Highest message ID seen so far
+        const bubble = document.getElementById('chat_bubble'); // Floating chat window element
+        const messagesDiv = document.getElementById('chat_messages');
+        const tabsDiv = document.getElementById('chat_tabs');  // Container that holds chat tabs
+        const tabs = {};                                      // Map of user_id -> tab element
+
+        // Ask server for the most recent message ID to avoid opening old chats on load
+        function initLatest(){
+            fetch('dm.php?action=latest_id')
+                .then(r=>r.json())
+                .then(d=>{ if(d && d.latest) lastMessageId = d.latest; });
+        }
+        initLatest();
+
+        // Ensure a tab exists for the given user ID and return it
+        function ensureTab(id){
+            if(tabs[id]) return tabs[id];
+            const span = document.createElement('span');
+            span.className = 'chat_tab';
+            span.textContent = 'Chat with ' + nodes.get(id).label;
+            span.addEventListener('click', () => openChat(id));
+            const btn = document.createElement('button');
+            btn.innerHTML = '&times;'; // × symbol for clear visibility
+            btn.addEventListener('click', e => { e.stopPropagation(); closeChat(id); });
+            span.appendChild(btn);
+            tabsDiv.appendChild(span);
+            tabsDiv.scrollLeft = tabsDiv.scrollWidth; // auto-scroll so new tab is fully in view
+            tabs[id] = span;
+            return span;
+        }
+
+        // Display the chat bubble and load history for a given user
+        function openChat(id){
+            ensureTab(id);
+            activeChat = id;
+            bubble.style.display = 'block';
+            loadMessages();
+        }
+
+        // Close the tab and hide the bubble if the active chat is closed
+        function closeChat(id){
+            if(tabs[id]){ tabs[id].remove(); delete tabs[id]; }
+            if(activeChat === id){
+                activeChat = null;
+                bubble.style.display = 'none';
+            }
+        }
+
+        // Fetch the full conversation with the active chat partner
+        function loadMessages(){
+            if(activeChat === null) return;
+            fetch('dm.php?action=fetch&user_id='+activeChat)
+                .then(r=>r.json())
+                .then(msgs=>{
+                    messagesDiv.innerHTML = msgs.map(m=>`<div><strong>${m.sender_id==user_id?'Me':nodes.get(m.sender_id).label}:</strong> ${m.message}</div>`).join('');
+                    if(msgs.length) lastMessageId = msgs[msgs.length-1].id;
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                });
+        }
+
+        // Poll for new messages and open tabs as senders arrive
+        function checkIncoming(){
+            fetch('dm.php?action=latest&since='+lastMessageId)
+                .then(r=>r.json())
+                .then(arr=>{
+                    if(!Array.isArray(arr) || !arr.length) return;
+                    let reload = false;
+                    arr.forEach(m=>{
+                        if(m.id>lastMessageId) lastMessageId = m.id;
+                        ensureTab(m.sender_id);
+                        if(activeChat === m.sender_id) reload = true;
+                    });
+                    if(activeChat===null) openChat(arr[arr.length-1].sender_id);
+                    else if(reload) loadMessages();
+                });
+        }
+
+        // Regularly refresh the active conversation and check for new messages
+        setInterval(loadMessages,3000);
+        setInterval(checkIncoming,3000);
+
+        // Send a message when the chat form is submitted
+        document.getElementById('chat_form').addEventListener('submit', e=>{
+            e.preventDefault();
+            if(activeChat===null) return;
+            const text = document.getElementById('chat_input').value.trim();
+            if(!text) return;
+            fetch('dm.php', {
+                method:'POST',
+                headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body:new URLSearchParams({action:'send', user_id:activeChat, message:text})
+            }).then(()=>{
+                document.getElementById('chat_input').value='';
+                loadMessages();
+            });
+        });
+
         network.on('click', params => {
             if(params.nodes.length){
                 const id = params.nodes[0];
@@ -189,6 +353,7 @@ $requests = $stmt->fetchAll();
 
                 if(hasRel){
                     menu.innerHTML =
+                        '<button onclick="openChat('+id+')">Message</button><br>'+
                         optionSelect(id,'modType')+
                         '<button onclick="modifyRelationship('+id+')">Modify</button><br>'+
                         '<button onclick="removeRelationship('+id+')">Remove Relationship</button>';
