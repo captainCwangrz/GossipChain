@@ -50,6 +50,17 @@ try {
             status ENUM('PENDING','ACCEPTED','REJECTED') DEFAULT 'PENDING',
             FOREIGN KEY (from_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY (to_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB;
+
+        /* Direct messages between related users */
+        CREATE TABLE IF NOT EXISTS messages (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sender_id INT NOT NULL,
+            receiver_id INT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB;"
     );
 } catch (PDOException $e) {
