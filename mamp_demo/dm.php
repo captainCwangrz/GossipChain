@@ -31,12 +31,8 @@ if ($action === 'fetch') {
         http_response_code(403);
         exit;
     }
-    $stmt = $pdo->prepare(
-        'SELECT id, sender_id, message, DATE_FORMAT(created_at, "%Y-%m-%d %H:%i:%s") AS created_at\n'
-       .' FROM messages\n'
-       .' WHERE (sender_id=? AND receiver_id=?) OR (sender_id=? AND receiver_id=?)\n'
-       .' ORDER BY id ASC'
-    );
+    $stmt = $pdo->prepare('SELECT id, sender_id, message, DATE_FORMAT(created_at, "%Y-%m-%d %H:%i:%s") AS created_at FROM messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY id ASC');
+
     $stmt->execute([$user_id,$other_id,$other_id,$user_id]);
     header('Content-Type: application/json');
     echo json_encode($stmt->fetchAll());
@@ -55,12 +51,7 @@ if ($action === 'latest_id') {
 // Fetch all messages newer than the provided ID
 if ($action === 'latest') {
     $since = (int)($_GET['since'] ?? 0);
-    $stmt = $pdo->prepare(
-        'SELECT id, sender_id, message\n'
-       .' FROM messages\n'
-       .' WHERE receiver_id=? AND id>?\n'
-       .' ORDER BY id ASC'
-    );
+    $stmt = $pdo->prepare('SELECT id, sender_id, message FROM messages WHERE receiver_id = ? AND id > ? ORDER BY id ASC');
     $stmt->execute([$user_id, $since]);
     header('Content-Type: application/json');
     echo json_encode($stmt->fetchAll());
