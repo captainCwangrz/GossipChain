@@ -23,7 +23,7 @@ Network graph of relationships
     /*
     2. Fetch data for the page
     */
-    $nodes = $pdo->query('SELECT id, username, x_pos, y_pos, avatar FROM users')->fetchAll(PDO::FETCH_ASSOC);
+    $nodes = $pdo->query('SELECT id, username, x_pos, y_pos, avatar, signature FROM users')->fetchAll(PDO::FETCH_ASSOC);
     $edges = $pdo->query('SELECT from_id, to_id, type FROM relationships')->fetchAll(PDO::FETCH_ASSOC);
     $statement = $pdo->prepare(
         'SELECT r.id, r.from_id, r.type, u.username
@@ -44,7 +44,8 @@ Network graph of relationships
             'y' => (double) $u['y_pos'],
             'shape' => "image",
             'image' => "assets/".$avatar,
-            'borderWidth' => 3
+            'borderWidth' => 3,
+            'signature' => $u['signature'] ?? ''
         ];
     }, $nodes);
     $graph_edges = array_map(function($e){
@@ -132,13 +133,107 @@ Network graph of relationships
         /* Individual chat tab with a visible close button */
         .chat_tab       { background:#fff; border:1px solid #ccc; border-radius:4px; padding:0 6px; cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; flex:0 0 auto; }
         .chat_tab button{ margin-left:6px; flex:0 0 auto; background:none; border:none; cursor:pointer; padding:0; line-height:1; font-size:14px; font-weight:bold; color:#333; }
-        .context-menu   {
-            position:absolute; background:#ffffffee; box-shadow:0 2px 6px rgba(0,0,0,.2);
-            border-radius:4px; padding:.5rem; display:none; z-index:10;
+        .context-menu {
+            position:absolute;
+            background:#ffffff;
+            box-shadow:0 16px 40px rgba(15,23,42,0.18);
+            border-radius:10px;
+            padding:0;
+            display:none;
+            z-index:10;
+            min-width:240px;
+            border:1px solid rgba(15,23,42,0.08);
+            overflow:hidden;
         }
-        .context-menu button {
-            display:block; width:100%; background:none; border:none;
-            padding:.25rem 0; cursor:pointer; text-align:left;
+        .context-menu .menu-item {
+            padding:0.75rem 1rem;
+        }
+        .context-menu .menu-item + .menu-item {
+            border-top:1px solid rgba(148,163,184,0.25);
+        }
+        .context-menu .menu-title {
+            font-weight:600;
+            font-size:0.9rem;
+            color:#1f2937;
+            margin-bottom:0.4rem;
+        }
+        .context-menu .menu-button {
+            width:100%;
+            border:none;
+            border-radius:8px;
+            padding:0.45rem 0.75rem;
+            cursor:pointer;
+            font-weight:600;
+            background:linear-gradient(135deg, #4f46e5, #6366f1);
+            color:#fff;
+            transition:transform .12s ease, box-shadow .12s ease;
+        }
+        .context-menu .menu-button:hover {
+            transform:translateY(-1px);
+            box-shadow:0 10px 20px rgba(99,102,241,0.3);
+        }
+        .context-menu .menu-button.secondary {
+            background:#f3f4f6;
+            color:#1f2937;
+        }
+        .context-menu .menu-button.secondary:hover {
+            box-shadow:0 8px 16px rgba(107,114,128,0.25);
+        }
+        .context-menu .menu-button.danger {
+            background:linear-gradient(135deg, #ef4444, #f87171);
+        }
+        .context-menu .menu-select,
+        .context-menu textarea {
+            width:100%;
+            border:1px solid rgba(148,163,184,0.5);
+            border-radius:8px;
+            padding:0.45rem 0.6rem;
+            font-family:inherit;
+            font-size:0.9rem;
+            box-sizing:border-box;
+            background:#fff;
+        }
+        .context-menu textarea {
+            resize:vertical;
+            min-height:72px;
+            line-height:1.4;
+        }
+        .context-menu .menu-note {
+            color:#6b7280;
+            font-size:0.8rem;
+            margin-bottom:0.35rem;
+        }
+        .context-menu .signature-text {
+            color:#334155;
+            font-size:0.9rem;
+            line-height:1.45;
+            white-space:pre-wrap;
+        }
+        .context-menu .signature-text.muted {
+            color:#9ca3af;
+            font-style:italic;
+        }
+        .context-menu .menu-footer {
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:0.75rem;
+            flex-wrap:wrap;
+        }
+        .context-menu .menu-counter {
+            font-size:0.75rem;
+            color:#6b7280;
+        }
+        .context-menu .menu-actions {
+            display:flex;
+            gap:0.5rem;
+        }
+        .context-menu .menu-feedback {
+            margin-top:0.4rem;
+            font-size:0.75rem;
+            color:#059669;
+            opacity:0;
+            transition:opacity .2s ease;
         }
         /* Floating chat window fixed to the bottom-right above the bar */
         #chat_bubble   { display:none; border:1px solid #333; background:#fff; padding:.5rem; max-width:300px; position:fixed; bottom:30px; right:0; }
@@ -299,36 +394,224 @@ Network graph of relationships
         //Context menu
         const context_menu = document.getElementById("context_menu");
         const relationships = ['DATING', 'BEST_FRIEND', 'BROTHER', 'SISTER', 'BEEFING', 'CRUSH'];
+        const SIGNATURE_LIMIT = 160;
         let opened = false;
-        function optionSelect(name, exclude)
+
+        function escapeHtml(str = '')
         {
-            const ex = (exclude || "").toUpperCase();
-            return '<select id="'+name+'">'+relationships.filter(t=>t!==ex).map(t=>`<option value="${t}">${t}</option>`).join('')+'</select>';
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
+
+        function formatSignatureText(text = '')
+        {
+            return escapeHtml(text).replace(/\n/g, '<br>');
+        }
+
+        function optionSelect(id, exclude, labelText)
+        {
+            const ex = (exclude || '').toUpperCase();
+            const optionsHtml = relationships
+                .filter(t => !ex || t !== ex)
+                .map(t => `<option value="${t}">${t.replace(/_/g, ' ')}</option>`)
+                .join('');
+            return `
+                <label class="menu-note" for="${id}">${labelText}</label>
+                <select id="${id}" class="menu-select">${optionsHtml}</select>
+            `;
+        }
+
+        function renderSignaturePreview(node)
+        {
+            const signature = (node.signature || '').trim();
+            const header = `${escapeHtml(node.label || 'User')}'s Signature`;
+            const content = signature
+                ? `<p class="signature-text">${formatSignatureText(signature)}</p>`
+                : `<p class="signature-text muted">This friend has not written a signature yet.</p>`;
+            return `
+                <div class="menu-item signature-block">
+                    <div class="menu-title">${header}</div>
+                    ${content}
+                </div>
+            `;
+        }
+
+        function showMenuAt(x, y, html)
+        {
+            context_menu.innerHTML = html;
+            context_menu.style.left = x + 'px';
+            context_menu.style.top = y + 'px';
+            context_menu.style.display = 'block';
+            opened = true;
+        }
+
         function post(action, extra)
         {
             const form_data = new URLSearchParams(extra);
             form_data.append('action', action);
             fetch('relationships.php', {
-                method:'POST', 
+                method:'POST',
                 headers: {'Content-Type': 'application/x-www-form-urlencoded'},
                 body: form_data.toString()
             }).then(()=>location.reload());
         }
+
         function sendRequest(to_id)
         {
-            post('request', {to_id: to_id, type: document.getElementById('relationships').value});
+            const select = document.getElementById('relationships_select');
+            if(!select) return;
+            post('request', {to_id: to_id, type: select.value});
         }
+
         function modifyRelationship(to_id)
         {
-            post('modify', {to_id: to_id, type: document.getElementById('relationships2').value});
+            const select = document.getElementById('relationships_select2');
+            if(!select) return;
+            post('modify', {to_id: to_id, type: select.value});
         }
+
         function removeRelationship(to_id)
         {
-            if(confirm("Are you sure you want to remove the Relationship?"))
+            if(confirm("Are you sure you want to remove the relationship?"))
             {
                 post('remove', {to_id: to_id});
             }
+        }
+
+        function setSignatureFeedback(text)
+        {
+            const el = document.getElementById('signature_feedback');
+            if(!el) return;
+            el.textContent = text;
+            el.style.opacity = 1;
+            setTimeout(()=>{ el.style.opacity = 0; }, 1600);
+        }
+
+        function updateSignatureCounter()
+        {
+            const textarea = document.getElementById('signature_input');
+            const counter = document.getElementById('signature_counter');
+            if(!textarea || !counter) return;
+            counter.textContent = `${textarea.value.length}/${SIGNATURE_LIMIT}`;
+        }
+
+        function submitSignature(value)
+        {
+            const form_data = new URLSearchParams();
+            form_data.append('signature', value);
+            return fetch('profile.php', {
+                method:'POST',
+                headers:{'Content-Type':'application/x-www-form-urlencoded'},
+                body: form_data.toString()
+            })
+            .then(r=>r.json())
+            .then(res=>{
+                if(!res || !res.success)
+                {
+                    throw new Error('Failed');
+                }
+                nodes.update({id: CURRENT_USER_ID, signature: res.signature || ''});
+                setSignatureFeedback(res.message || 'Saved');
+                return res;
+            });
+        }
+
+        function saveSignature()
+        {
+            const textarea = document.getElementById('signature_input');
+            if(!textarea) return;
+            const text = textarea.value.trim();
+            if(text.length > SIGNATURE_LIMIT)
+            {
+                alert(`Signature is too long. Max ${SIGNATURE_LIMIT} characters.`);
+                return;
+            }
+            submitSignature(text).catch(()=>alert('Unable to update signature right now. Please try again later.'));
+        }
+
+        function clearSignature()
+        {
+            const textarea = document.getElementById('signature_input');
+            if(!textarea) return;
+            textarea.value = '';
+            updateSignatureCounter();
+            submitSignature('').catch(()=>alert('Unable to clear signature right now. Please try again later.'));
+        }
+
+        function showSelfMenu(position)
+        {
+            const selfNode = nodes.get(CURRENT_USER_ID) || {signature:''};
+            const markup = `
+                <div class="menu-item">
+                    <div class="menu-title">Share your moment</div>
+                    <textarea id="signature_input" maxlength="${SIGNATURE_LIMIT}" placeholder="Write a short signature..."></textarea>
+                    <div class="menu-footer">
+                        <span class="menu-counter" id="signature_counter">0/${SIGNATURE_LIMIT}</span>
+                        <div class="menu-actions">
+                            <button class="menu-button secondary" onclick="clearSignature()">Clear</button>
+                            <button class="menu-button" onclick="saveSignature()">Save</button>
+                        </div>
+                    </div>
+                    <div class="menu-feedback" id="signature_feedback" aria-live="polite"></div>
+                </div>
+            `;
+            showMenuAt(position.x, position.y, markup);
+            requestAnimationFrame(()=>{
+                const textarea = document.getElementById('signature_input');
+                if(textarea)
+                {
+                    textarea.value = selfNode.signature || '';
+                    updateSignatureCounter();
+                    textarea.addEventListener('input', updateSignatureCounter);
+                }
+            });
+        }
+
+        function showUserMenu(id, position)
+        {
+            const node = nodes.get(id);
+            if(!node) return;
+            const rel = edges.get().find(e=>
+                (e.from==CURRENT_USER_ID&&e.to==id) ||
+                (e.from==id&&e.to==CURRENT_USER_ID));
+            const signatureBlock = renderSignaturePreview(node);
+            let markup = signatureBlock;
+            if(rel)
+            {
+                const currentType = rel.label || '';
+                markup += `
+                    <div class="menu-item">
+                        <button class="menu-button" onclick="openChat(${id})">Message</button>
+                    </div>
+                    <div class="menu-item">
+                        <div class="menu-title">Relationship</div>
+                        <div class="menu-note">Current: ${escapeHtml(currentType)}</div>
+                        ${optionSelect('relationships_select2', currentType, 'Change relationship to')}
+                        <div class="menu-actions">
+                            <button class="menu-button secondary" onclick="modifyRelationship(${id})">Update Relationship</button>
+                        </div>
+                    </div>
+                    <div class="menu-item">
+                        <button class="menu-button danger" onclick="removeRelationship(${id})">Remove Relationship</button>
+                    </div>
+                `;
+            }
+            else
+            {
+                markup += `
+                    <div class="menu-item">
+                        ${optionSelect('relationships_select', '', 'Send relationship request as')}
+                        <div class="menu-actions">
+                            <button class="menu-button" onclick="sendRequest(${id})">Send Request</button>
+                        </div>
+                    </div>
+                `;
+            }
+            showMenuAt(position.x, position.y, markup);
         }
 
 
@@ -443,35 +726,15 @@ Network graph of relationships
             if(params.nodes.length)
             {
                 const id = params.nodes[0];
+                const position = params.pointer.DOM;
                 if(id === CURRENT_USER_ID)
                 {
-                    context_menu.style.display = "none";
-                    return;
-                }
-                const {x,y} = params.pointer.DOM;
-                const rel = edges.get().find(e=>
-                    (e.from==CURRENT_USER_ID&&e.to==id) || 
-                    (e.from==id&&e.to==CURRENT_USER_ID));
-                const has_relationship = Boolean(rel);
-                if(has_relationship)
-                {
-                    const current_type = rel.label;
-                    context_menu.innerHTML = 
-                        '<button onclick="openChat('+id+')">Message</button>'+
-                        optionSelect("modType", current_type) + 
-                        '<button onclick="modifyRelationship('+id+')">Modify</button><br>'+
-                        '<button onclick="removeRelationship('+id+')">Remove Relationship</button>';
+                    showSelfMenu(position);
                 }
                 else
                 {
-                    context_menu.innerHTML = 
-                        optionSelect("relationships") + 
-                        '<button onclick="sendRequest('+id+')">Send Request</button>';
+                    showUserMenu(id, position);
                 }
-                context_menu.style.left = x+"px";
-                context_menu.style.top = y+"px";
-                context_menu.style.display = "block";
-                opened = true;
                 if(params.event?.srcEvent?.preventDefault)
                 {
                     params.event.srcEvent.preventDefault();
@@ -483,7 +746,7 @@ Network graph of relationships
             }
             else
             {
-                context_menu.style.display = "none";
+                context_menu.style.display = 'none';
             }
         });
         document.addEventListener('click', e => {

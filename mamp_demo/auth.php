@@ -35,7 +35,7 @@
         $count = (int) $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
         //range: density or spacing of graph
         $range = max(1, sqrt($count+1))*300;
-        $sql = 'INSERT INTO users (username, password_hash, x_pos, y_pos, avatar) VALUES (?, ?, ?, ?, ?)';
+        $sql = 'INSERT INTO users (username, password_hash, x_pos, y_pos, avatar, signature) VALUES (?, ?, ?, ?, ?, NULL)';
         $stmt = $pdo->prepare($sql);
 
         do
