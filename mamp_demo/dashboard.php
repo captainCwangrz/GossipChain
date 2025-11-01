@@ -280,6 +280,84 @@ Network graph of relationships
 
         const backgroundImage = new Image();
         let backgroundReady = false;
+        let minAllowedScale = 0;
+        let suppressViewAdjustment = false;
+
+        updateScaleConstraints();
+
+        function computeMinScale()
+        {
+            const worldWidth = mapWorld.maxX - mapWorld.minX;
+            const worldHeight = mapWorld.maxY - mapWorld.minY;
+            const containerWidth = networkContainer.clientWidth;
+            const containerHeight = networkContainer.clientHeight;
+
+            if(worldWidth <= 0 || worldHeight <= 0 || containerWidth === 0 || containerHeight === 0)
+            {
+                return 0;
+            }
+
+            return Math.max(
+                containerWidth / worldWidth,
+                containerHeight / worldHeight
+            );
+        }
+
+        function updateScaleConstraints()
+        {
+            minAllowedScale = computeMinScale();
+        }
+
+        function clampView(scaleOverride)
+        {
+            if(suppressViewAdjustment)
+            {
+                return;
+            }
+
+            const scale = Math.max(scaleOverride ?? network.getScale(), minAllowedScale || 0.0001);
+            const position = network.getViewPosition();
+
+            const containerWidth = networkContainer.clientWidth;
+            const containerHeight = networkContainer.clientHeight;
+
+            const halfWidth = containerWidth / (scale * 2);
+            const halfHeight = containerHeight / (scale * 2);
+
+            let minX = mapWorld.minX + halfWidth;
+            let maxX = mapWorld.maxX - halfWidth;
+            if(minX > maxX)
+            {
+                minX = maxX = (mapWorld.minX + mapWorld.maxX) / 2;
+            }
+
+            let minY = mapWorld.minY + halfHeight;
+            let maxY = mapWorld.maxY - halfHeight;
+            if(minY > maxY)
+            {
+                minY = maxY = (mapWorld.minY + mapWorld.maxY) / 2;
+            }
+
+            const clampedX = Math.min(Math.max(position.x, minX), maxX);
+            const clampedY = Math.min(Math.max(position.y, minY), maxY);
+
+            const epsilon = 0.0001;
+            const scaleDelta = Math.abs(scale - network.getScale());
+            const posDeltaX = Math.abs(position.x - clampedX);
+            const posDeltaY = Math.abs(position.y - clampedY);
+
+            if(scaleDelta > epsilon || posDeltaX > epsilon || posDeltaY > epsilon)
+            {
+                suppressViewAdjustment = true;
+                network.moveTo({
+                    position: {x: clampedX, y: clampedY},
+                    scale,
+                    animation: false
+                });
+                suppressViewAdjustment = false;
+            }
+        }
+
 
         function expandWorldToMinimum(minSize)
         {
@@ -339,6 +417,8 @@ Network graph of relationships
                 const adjustedHeight = mapWorld.maxY - mapWorld.minY;
                 ensureMapAspect(adjustedWidth, adjustedHeight);
             }
+            updateScaleConstraints();
+            clampView();
             network.redraw();
         };
 
@@ -375,6 +455,31 @@ Network graph of relationships
         }
 
         network.on('beforeDrawing', drawBackground);
+
+        network.on('zoom', params => {
+            if(!suppressViewAdjustment)
+            {
+                clampView(params.scale);
+            }
+        });
+
+        network.on('dragEnd', () => {
+            clampView();
+        });
+
+        network.on('animationFinished', () => {
+            clampView();
+        });
+
+        network.on('resize', () => {
+            updateScaleConstraints();
+            clampView();
+        });
+
+        window.addEventListener('resize', debounce(() => {
+            updateScaleConstraints();
+            clampView();
+        }, 150));
 
         if(nodes.get(CURRENT_USER_ID))
         {
