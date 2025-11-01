@@ -71,10 +71,8 @@ Network graph of relationships
             {
                 font-family: system-ui, sans-serif;
                 background-color: lightcoral;
-                /*background-image: url("assets/map2.jpg");*/
                 background-position: center center;
                 background-size: cover;
-                /*opacity: 0.7;*/
                 z-index: -1;
 
             }
@@ -86,7 +84,7 @@ Network graph of relationships
                 overflow: hidden;
             }
            /* Network graph fills the viewport minus the header and footer */
-        #graph          { width:100vw; height:calc(100vh - 80px); border:none; }
+        #graph          { width:100vw; height:calc(100vh - 80px); border:none; position:relative; overflow:hidden; }
 
         /* Polished top bar greeting/search/logout section */
         #top_bar{
@@ -254,168 +252,108 @@ Network graph of relationships
                 zoomView: true
             }
         };
-        const network = new vis.Network(document.getElementById("graph"), {nodes, edges}, options);
+        const networkContainer = document.getElementById("graph");
+        const network = new vis.Network(networkContainer, {nodes, edges}, options);
 
-        const map = new Image();
-        let map_ready = false;
-        map.src = "assets/map.png";
-        map.onload = ()=>{
-            map_ready = true;
-            computeMapScale();
+        const nodePositions = nodes.get();
+        const bounds = nodePositions.reduce((acc, node)=>{
+            acc.minX = Math.min(acc.minX, node.x);
+            acc.maxX = Math.max(acc.maxX, node.x);
+            acc.minY = Math.min(acc.minY, node.y);
+            acc.maxY = Math.max(acc.maxY, node.y);
+            return acc;
+        }, {minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity});
+
+        const hasNodes = Number.isFinite(bounds.minX) && Number.isFinite(bounds.maxX);
+        const padding = 600;
+        function computeBaseWorld()
+        {
+            if(!hasNodes)
+            {
+                return {
+                    minX: -1500,
+                    maxX: 1500,
+                    minY: -1500,
+                    maxY: 1500
+                };
+            }
+
+            return {
+                minX: bounds.minX - padding,
+                maxX: bounds.maxX + padding,
+                minY: bounds.minY - padding,
+                maxY: bounds.maxY + padding
+            };
+        }
+
+        function extendWorldToAspect(world, aspect)
+        {
+            if(!(aspect > 0))
+            {
+                return world;
+            }
+
+            const worldWidth = world.maxX - world.minX;
+            const worldHeight = world.maxY - world.minY;
+
+            if(worldWidth <= 0 || worldHeight <= 0)
+            {
+                return world;
+            }
+
+            const worldAspect = worldWidth / worldHeight;
+            const result = {...world};
+
+            if(worldAspect > aspect)
+            {
+                const desiredHeight = worldWidth / aspect;
+                const delta = desiredHeight - worldHeight;
+                result.minY -= delta / 2;
+                result.maxY += delta / 2;
+            }
+            else
+            {
+                const desiredWidth = worldHeight * aspect;
+                const delta = desiredWidth - worldWidth;
+                result.minX -= delta / 2;
+                result.maxX += delta / 2;
+            }
+
+            return result;
+        }
+
+        let mapWorld = computeBaseWorld();
+
+        const backgroundImage = new Image();
+        let backgroundReady = false;
+        backgroundImage.src = 'assets/map.png';
+        backgroundImage.onload = () => {
+            const aspect = backgroundImage.width > 0 && backgroundImage.height > 0
+                ? backgroundImage.width / backgroundImage.height
+                : 1;
+
+            mapWorld = extendWorldToAspect(computeBaseWorld(), aspect);
+            backgroundReady = true;
             network.redraw();
         };
-        const container = document.getElementById("graph");
-        const nodeSpace = (()=>{
-            const xs = GRAPH_NODES.map(n=>+n.x || 0);
-            const ys = GRAPH_NODES.map(n=>+n.y || 0);
-            const minX = Math.min(...xs);
-            const maxX = Math.max(...xs);
-            const minY = Math.min(...ys);
-            const maxY = Math.max(...ys);
-            return {
-                minX, maxX, minY, maxY,
-                width: Math.max(1, maxX-minX),
-                height: Math.max(1, maxY-minY),
-                cx: (maxX+minX)/2,
-                cy: (maxY+minY)/2
-            };
-        })();
-        const worldCenter = (nodeSpace.minX<0 && nodeSpace.maxX>0 && nodeSpace.minY<0 && nodeSpace.maxY>0);
-        let mapScale = 1;
-        function computeMapScale()
+
+        function drawBackground(ctx)
         {
-            if(!map_ready)
+            if(!backgroundReady)
             {
                 return;
-            }
-            const needW = nodeSpace.width*1.2;
-            const needH = nodeSpace.height*1.2;
-            const sw = needW/map.width;
-            const sh = needH/map.height;
-            mapScale = Math.max(sw, sh, 1);
-            computeMinZoom();
-        }
-        let minZoom = 0.02;
-        function computeMinZoom()
-        {
-            const worldW = map.width * mapScale;
-            const worldH = map.height * mapScale;
-            const cw = container.clientWidth || 1;
-            const ch = container.clientHeight || 1;
-            const minByW = cw/worldW;
-            const minByH = ch/worldH;
-            minZoom = Math.max(minByW, minByH)*0.999;
-            /*!!!!!*/
-        }
-        function clampView()
-        {
-            const scale = network.getScale();
-            const pos = network.getViewPosition();
-            const worldW = map.width * mapScale;
-            const worldH = map.height * mapScale;
-            let left, top, right, bottom;
-            if(worldCenter)
-            {
-                left = -worldW/2;
-                right = worldW/2;
-                top = -worldH/2;
-                bottom = worldH/2;
-            }
-            else
-            {
-                top = 0;
-                left = 0;
-                right = worldW;
-                bottom = worldH;
-            }
-            const halfW = container.clientWidth/scale/2;
-            const halfH = container.clientHeight/scale/2;
-            const minX = left + halfW;
-            const maxX = right - halfW;
-            const minY = top + halfH;
-            const maxY = bottom - halfH;
-            const clampX = Math.min(Math.max(minX, pos.x), maxX);
-            const clampY = Math.min(Math.max(minY, pos.y), maxY);
-            const clampScale = Math.max(scale, minZoom);
-            if(clampX !== pos.x || clampY !== pos.y || clampScale !== scale)
-            {
-                network.moveTo({
-                    position: {
-                        x: clampX,
-                        y: clampY
-                    },
-                    scale: clampScale
-                });
             }
 
-        }
-        network.on("beforeDrawing", ctx=>{
-            if(!map_ready)
-            {
-                return;
-            }
-            const scale = network.getScale();
-            const view = network.getViewPosition();
-            const w = map.width * mapScale;
-            const h = map.height * mapScale;
-            let mapX, mapY;
-            if(worldCenter)
-            {
-                mapX = -w/2;
-                mapY = -h/2;
-            }
-            else
-            {
-                mapX = 0;
-                mapY = 0;
-            }
-            const cx = ctx.canvas.width/2;
-            const cy = ctx.canvas.height/2;
-            const drawX = cx+(mapX-view.x)*scale;
-            const drawY = cy+(mapY-view.y)*scale;
             ctx.save();
-            ctx.imageSmoothingEnabled = true;
             ctx.globalAlpha = 1;
-            ctx.drawImage(map, drawX, drawY, w*scale, h*scale);
+            const worldWidth = mapWorld.maxX - mapWorld.minX;
+            const worldHeight = mapWorld.maxY - mapWorld.minY;
+            ctx.drawImage(backgroundImage, mapWorld.minX, mapWorld.minY, worldWidth, worldHeight);
             ctx.restore();
-        });
+        }
 
-        network.on("zoom", clampView);
-        network.on("dragEnd", clampView);
-        window.addEventListener("resize", ()=>{computeMinZoom(); clampView();});
-        function initialCenter()
-        {
-            const worldW = map.width * mapScale;
-            const worldH = map.height * mapScale;
-            let target = {x: nodeSpace.cx, y: nodeSpace.cy};
-            if(!worldCenter)
-            {
-                target = {x: worldW/2, y: worldH/2};
-            }
-            const wpx = container.clientWidth || 1;
-            const hpx = container.clientHeight || 1;
-            const byW = wpx/worldW;
-            const byH = hpx/worldH;
-            const startScale = Math.max(byW, byH) * 0.95;
-            network.moveTo({
-                position: target,
-                scale: Math.max(startScale, minZoom),
-                animation: {duration: 0}
-            });
-        }
-        if(map.complete)
-        {
-            map_ready = true;
-            computeMapScale();
-            initialCenter();
-        }
-        else{
-            map.onload = ()=>{
-                map_ready=true;
-                computeMapScale();
-                initialCenter();
-            };
-        }
+        network.on('beforeDrawing', drawBackground);
+
         if(nodes.get(CURRENT_USER_ID))
         {
             network.focus(CURRENT_USER_ID, {scale:1.6, animation:{duration: 800}});
