@@ -55,12 +55,13 @@
     }
     if($action === "remove")
     {
-    	if($to_id && $type)
-    	{
-    		$sql = 'DELETE FROM relationships WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)';//Change database stuff
-	        $stmt = $pdo->prepare($sql);
-	        $stmt->execute($user_id, $to_id, $to_id, $user_id);//have to match up with sql sequence
-    	}	
+        $to_id = (int) ($_POST["to_id"] ?? 0);
+        if($to_id)
+        {
+                $sql = 'DELETE FROM relationships WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)';//Change database stuff
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute([$user_id, $to_id, $to_id, $user_id]);//have to match up with sql sequence
+        }
     }
     header('Location:dashboard.php');
 ?>
