@@ -65,10 +65,7 @@
                         ) ENGINE=InnoDB;
                 ");
 
-        $columnCheck = $pdo->query("SHOW COLUMNS FROM users LIKE 'signature'");
-        if ($columnCheck->rowCount() === 0) {
-                $pdo->exec("ALTER TABLE users ADD COLUMN signature VARCHAR(160) DEFAULT NULL");
-        }
+        $pdo->exec("ALTER TABLE users ADD COLUMN IF NOT EXISTS signature VARCHAR(160) DEFAULT NULL");
         } catch (PDOException $e) {
                 die("Database error: " . $e->getMessage());
         }
