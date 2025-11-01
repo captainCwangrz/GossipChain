@@ -280,9 +280,65 @@ Network graph of relationships
 
         const backgroundImage = new Image();
         let backgroundReady = false;
+
+        function expandWorldToMinimum(minSize)
+        {
+            const currentWidth = mapWorld.maxX - mapWorld.minX;
+            const currentHeight = mapWorld.maxY - mapWorld.minY;
+            if(currentWidth < minSize)
+            {
+                const extra = (minSize - currentWidth) / 2;
+                mapWorld.minX -= extra;
+                mapWorld.maxX += extra;
+            }
+            if(currentHeight < minSize)
+            {
+                const extra = (minSize - currentHeight) / 2;
+                mapWorld.minY -= extra;
+                mapWorld.maxY += extra;
+            }
+        }
+
+        function ensureMapAspect(width, height)
+        {
+            if(!backgroundReady)
+            {
+                return;
+            }
+            const imgAspect = backgroundImage.width / backgroundImage.height;
+            const worldAspect = width / height;
+            if(!Number.isFinite(imgAspect) || imgAspect === 0)
+            {
+                return;
+            }
+            if(worldAspect > imgAspect)
+            {
+                const desiredHeight = width / imgAspect;
+                const extra = (desiredHeight - height) / 2;
+                mapWorld.minY -= extra;
+                mapWorld.maxY += extra;
+            }
+            else
+            {
+                const desiredWidth = height * imgAspect;
+                const extra = (desiredWidth - width) / 2;
+                mapWorld.minX -= extra;
+                mapWorld.maxX += extra;
+            }
+        }
+
         backgroundImage.src = 'assets/map.png';
         backgroundImage.onload = () => {
             backgroundReady = true;
+            const worldWidth = mapWorld.maxX - mapWorld.minX;
+            const worldHeight = mapWorld.maxY - mapWorld.minY;
+            if(worldWidth > 0 && worldHeight > 0)
+            {
+                expandWorldToMinimum(2600);
+                const adjustedWidth = mapWorld.maxX - mapWorld.minX;
+                const adjustedHeight = mapWorld.maxY - mapWorld.minY;
+                ensureMapAspect(adjustedWidth, adjustedHeight);
+            }
             network.redraw();
         };
 
@@ -306,7 +362,15 @@ Network graph of relationships
 
             ctx.save();
             ctx.globalAlpha = 0.9;
-            ctx.drawImage(backgroundImage, topLeftDom.x, topLeftDom.y, width, height);
+            const pixelRatioX = ctx.canvas.width / networkContainer.clientWidth;
+            const pixelRatioY = ctx.canvas.height / networkContainer.clientHeight;
+            ctx.drawImage(
+                backgroundImage,
+                topLeftDom.x * pixelRatioX,
+                topLeftDom.y * pixelRatioY,
+                width * pixelRatioX,
+                height * pixelRatioY
+            );
             ctx.restore();
         }
 
